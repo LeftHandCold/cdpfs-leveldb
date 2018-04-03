@@ -5,6 +5,7 @@
 #include "db/db_impl.h"
 
 #include "db/filename.h"
+#include "db/memtable.h"
 #include "util/coding.h"
 
 namespace leveldb {
@@ -79,16 +80,53 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
         std::string key = "testkey";
         std::string val = "testval";
         std::string rep;
-        PutLengthPrefixedSlice(&rep, key);
-        PutLengthPrefixedSlice(&rep, val);
-        rep.push_back(static_cast<char>(kTypeValue));
+    rep.resize(12);
+    int te = DecodeFixed32(rep.data() + 8);
+    EncodeFixed32(&rep[8], te + 1);
+    rep.push_back(static_cast<char>(kTypeValue));
+    PutLengthPrefixedSlice(&rep, key);
+    PutLengthPrefixedSlice(&rep, val);
+    SequenceNumber seq = 1;
+    EncodeFixed64(&rep[0], seq);
+    seq = DecodeFixed32(rep.data() + 8);
+    DecodeFixed32(rep.data() + 8);
         status = log_->AddRecord(Slice(rep));
+
+    bool sync_error = false;
+    if (status.ok() && options.sync) {
+        status = logfile_->Sync();
+        if (!status.ok()) {
+            sync_error = true;
+        }
+    }
+
+    Slice input(rep);
+    input.remove_prefix(12);
+    Slice k, value;
+    int found = 0;
+    while (!input.empty()) {
+        found++;
+        char tag = input[0];
+        input.remove_prefix(1);
+
+        if (GetLengthPrefixedSlice(&input, &k) &&
+            GetLengthPrefixedSlice(&input, &value)) {
+
+            SequenceNumber sequence_ = SequenceNumber(rep.data());
+            mem_->Add(sequence_, kTypeValue, k, value);
+            sequence_++;
+        }
+    }
+
+
     //}
     return status;
 }
 
 DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
         : env_(raw_options.env),
+          internal_comparator_(raw_options.comparator),
+          internal_filter_policy_(raw_options.filter_policy),
           mem_(NULL),
           imm_(NULL),
           logfile_(NULL),
@@ -136,6 +174,9 @@ Status DBImpl::NewDB() {
     } else {
         env_->DeleteFile(manifest);
     }
+
+    mem_ = new MemTable(internal_comparator_);
+    mem_->Ref();
     return s;
 }
 
@@ -158,7 +199,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
 
     DBImpl* impl = new DBImpl(options, dbname);
     Status s = impl->NewDB();
-    if (s.ok() && impl->mem_ == NULL) {
+    if (s.ok() && impl->mem_ != NULL) {
         WritableFile* lfile;
         s = options.env->NewWritableFile(LogFileName(dbname, 00005),
                                         &lfile);
