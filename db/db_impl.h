@@ -52,6 +52,8 @@ private:
     // be made to the descriptor are added to *edit.
     Status Recover(VersionEdit* edit, bool* save_manifest);
 
+    Status MakeRoomForWrite(bool force /* compact even if there is room? */);
+
 
     // Constant after construction
     Env* const env_;
@@ -59,6 +61,12 @@ private:
     const bool owns_info_log_;
     const bool owns_cache_;
     const std::string dbname_;
+
+    MemTable* mem_;
+    MemTable* imm_;
+    WritableFile* logfile_;
+    uint64_t logfile_number_;
+    log::Writer* log_;
 
 
     // No copying allowed
