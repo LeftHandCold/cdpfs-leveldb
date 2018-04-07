@@ -11,6 +11,10 @@ int main() {
     options.create_if_missing = true;
     leveldb::Status status = leveldb::DB::Open(options, "testdb", &db);
     db->Put(WriteOptions(), "", "");
+
+    string res;
+    db->Get(ReadOptions(), "testkey", &res);
+    cout << res << endl;
     delete db;
 	return 0;
 }

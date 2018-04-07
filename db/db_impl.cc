@@ -56,6 +56,15 @@ Status DBImpl::Get(const ReadOptions& options,
            const Slice& key,
            std::string* value) {
     Status s;
+    MemTable* mem = mem_;
+    mem->Ref();
+    SequenceNumber snapshot;
+    snapshot = 1;
+    // First look in the memtable, then in the immutable memtable (if any).
+    LookupKey lkey(key, snapshot);
+
+    mem->Get(lkey, value, &s);
+    mem->Unref();
     return s;
 }
 
@@ -89,7 +98,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
     SequenceNumber seq = 1;
     EncodeFixed64(&rep[0], seq);
     seq = DecodeFixed32(rep.data() + 8);
-    DecodeFixed32(rep.data() + 8);
+    //DecodeFixed32(rep.data() + 8);
         status = log_->AddRecord(Slice(rep));
 
     bool sync_error = false;
@@ -113,7 +122,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
             GetLengthPrefixedSlice(&input, &value)) {
 
             SequenceNumber sequence_ = SequenceNumber(rep.data());
-            mem_->Add(sequence_, kTypeValue, k, value);
+            mem_->Add(seq, kTypeValue, k, value);
             sequence_++;
         }
     }

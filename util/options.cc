@@ -4,12 +4,13 @@
 
 #include "leveldb/options.h"
 
+#include "leveldb/comparator.h"
 #include "leveldb/env.h"
 
 namespace leveldb {
 
 Options::Options()
-        : comparator(NULL),
+        : comparator(BytewiseComparator()),
           create_if_missing(false),
           error_if_exists(false),
           paranoid_checks(false),
