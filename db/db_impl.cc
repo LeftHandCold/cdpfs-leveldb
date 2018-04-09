@@ -6,6 +6,8 @@
 
 #include "db/filename.h"
 #include "db/memtable.h"
+
+#include "db/write_batch_internal.h"
 #include "util/coding.h"
 
 namespace leveldb {
@@ -83,52 +85,12 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
 {
-    //Status status = MakeRoomForWrite(my_batch == NULL);
+    WriteBatchInternal::SetSequence(my_batch, 1);
     Status status;
-    //if (status.ok() && my_batch == NULL) { //NULL batch is for compactions
-        std::string key = "testkey";
-        std::string val = "testval";
-        std::string rep;
-    rep.resize(12);
-    int te = DecodeFixed32(rep.data() + 8);
-    EncodeFixed32(&rep[8], te + 1);
-    rep.push_back(static_cast<char>(kTypeValue));
-    PutLengthPrefixedSlice(&rep, key);
-    PutLengthPrefixedSlice(&rep, val);
-    SequenceNumber seq = 1;
-    EncodeFixed64(&rep[0], seq);
-    seq = DecodeFixed32(rep.data() + 8);
-    //DecodeFixed32(rep.data() + 8);
-        status = log_->AddRecord(Slice(rep));
+    status = log_->AddRecord(WriteBatchInternal::Contents(my_batch));
 
-    bool sync_error = false;
-    if (status.ok() && options.sync) {
-        status = logfile_->Sync();
-        if (!status.ok()) {
-            sync_error = true;
-        }
-    }
+    status = WriteBatchInternal::InsertInto(my_batch, mem_);
 
-    Slice input(rep);
-    input.remove_prefix(12);
-    Slice k, value;
-    int found = 0;
-    while (!input.empty()) {
-        found++;
-        char tag = input[0];
-        input.remove_prefix(1);
-
-        if (GetLengthPrefixedSlice(&input, &k) &&
-            GetLengthPrefixedSlice(&input, &value)) {
-
-            SequenceNumber sequence_ = SequenceNumber(rep.data());
-            mem_->Add(seq, kTypeValue, k, value);
-            sequence_++;
-        }
-    }
-
-
-    //}
     return status;
 }
 
@@ -192,7 +154,9 @@ Status DBImpl::NewDB() {
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
-    return Write(opt, NULL);
+    WriteBatch batch;
+    batch.Put(key, value);
+    return Write(opt, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt, const Slice& key) {

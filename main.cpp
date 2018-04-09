@@ -10,7 +10,7 @@ int main() {
     leveldb::Options options;
     options.create_if_missing = true;
     leveldb::Status status = leveldb::DB::Open(options, "testdb", &db);
-    db->Put(WriteOptions(), "", "");
+    db->Put(WriteOptions(), "testkey", "testval");
 
     string res;
     db->Get(ReadOptions(), "testkey", &res);
