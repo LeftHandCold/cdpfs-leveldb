@@ -52,6 +52,8 @@ private:
     // be made to the descriptor are added to *edit.
     Status Recover(VersionEdit* edit, bool* save_manifest);
 
+    void MaybeScheduleCompaction();
+
     Status MakeRoomForWrite(bool force /* compact even if there is room? */);
 
 
@@ -64,12 +66,16 @@ private:
     const bool owns_cache_;
     const std::string dbname_;
 
+    // table_cache_ provides its own synchronization
+    TableCache* const table_cache_;
+
     MemTable* mem_;
     MemTable* imm_;
     WritableFile* logfile_;
     uint64_t logfile_number_;
     log::Writer* log_;
 
+    VersionSet* const versions_;
 
     // No copying allowed
     DBImpl(const DBImpl&);

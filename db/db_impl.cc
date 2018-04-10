@@ -6,6 +6,8 @@
 
 #include "db/filename.h"
 #include "db/memtable.h"
+#include "db/table_cache.h"
+#include "db/version_set.h"
 
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
@@ -25,21 +27,47 @@ struct DBImpl::Writer {
     explicit Writer(port::Mutex* mu) { }
 };
 
+
+void DBImpl::MaybeScheduleCompaction() {
+
+}
+
 Status DBImpl::MakeRoomForWrite(bool force) {
+    bool allow_delay = !force;
     Status s;
-    
+    while (true) {
+        if (!force &&
+            (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+            // There is room in current memtable
+            break;
+        } else {
+
+            uint64_t new_log_number = versions_->NewFileNumber();
+            WritableFile* lfile = NULL;
+            s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+            if (!s.ok()) {
+                // Avoid chewing through file number space in a tight loop.
+                versions_->ReuseFileNumber(new_log_number);
+                break;
+            }
+            delete log_;
+            delete logfile_;
+            logfile_ = lfile;
+            logfile_number_ = new_log_number;
+            log_ = new log::Writer(lfile);
+            imm_ = mem_;
+            mem_ = new MemTable(internal_comparator_);
+            mem_->Ref();
+            force = false;   // Do not force another compaction if have room
+            MaybeScheduleCompaction();
+
+        }
+    }
     WritableFile* lfile = NULL;
     s = env_->NewWritableFile(LogFileName(dbname_, 8), &lfile);
     if (!s.ok()) {
         return s;
     }
-
-    delete log_;
-    delete logfile_;
-    logfile_ = lfile;
-    logfile_number_ = 8;
-    log_ = new log::Writer(lfile);
-    force = false;   // Do not force another compaction if have room
 
     return s;
 }
@@ -94,6 +122,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
     return status;
 }
 
+static int TableCacheSize(const Options& sanitized_options) {
+    // Reserve ten files or so for other uses and give the rest to TableCache.
+    return sanitized_options.max_open_files - kNumNonTableCacheFiles;
+}
+
 DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
         : env_(raw_options.env),
           internal_comparator_(raw_options.comparator),
@@ -105,7 +138,10 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
           log_(NULL),
           owns_info_log_(options_.info_log != raw_options.info_log),
           owns_cache_(options_.block_cache != raw_options.block_cache),
-          dbname_(dbname) {
+          dbname_(dbname),
+          table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
+          versions_(new VersionSet(dbname_, &options_, table_cache_,
+                                        &internal_comparator_)) {
     printf("this is test\n");
 }
 
