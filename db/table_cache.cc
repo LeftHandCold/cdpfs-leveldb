@@ -35,7 +35,7 @@ TableCache::TableCache(const std::string& dbname,
         : env_(options.env),
           dbname_(dbname),
           options_(options),
-          cache_(NewLRUCache(entries)) {
+          cache_(NULL) {
 }
 
 TableCache::~TableCache() {
@@ -45,37 +45,6 @@ TableCache::~TableCache() {
 Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
                              Cache::Handle** handle) {
     Status s;
-    char buf[sizeof(file_number)];
-    EncodeFixed64(buf, file_number);
-    Slice key(buf, sizeof(buf));
-    *handle = cache_->Lookup(key);
-    if (*handle == NULL) {
-        std::string fname = TableFileName(dbname_, file_number);
-        RandomAccessFile* file = NULL;
-        Table* table = NULL;
-        s = env_->NewRandomAccessFile(fname, &file);
-        if (!s.ok()) {
-            std::string old_fname = SSTTableFileName(dbname_, file_number);
-            if (env_->NewRandomAccessFile(old_fname, &file).ok()) {
-                s = Status::OK();
-            }
-        }
-        if (s.ok()) {
-            s = Table::Open(options_, file, file_size, &table);
-        }
-
-        if (!s.ok()) {
-            assert(table == NULL);
-            delete file;
-            // We do not cache error results so that if the error is transient,
-            // or somebody repairs the file, we recover automatically.
-        } else {
-            TableAndFile* tf = new TableAndFile;
-            tf->file = file;
-            tf->table = table;
-            *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
-        }
-    }
     return s;
 }
 
@@ -87,18 +56,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
         *tableptr = NULL;
     }
 
-    Cache::Handle* handle = NULL;
-    Status s = FindTable(file_number, file_size, &handle);
-    if (!s.ok()) {
-        return NewErrorIterator(s);
-    }
-
-    Table* table = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
-    Iterator* result = table->NewIterator(options);
-    result->RegisterCleanup(&UnrefEntry, cache_, handle);
-    if (tableptr != NULL) {
-        *tableptr = table;
-    }
+    Iterator* result = NULL;
     return result;
 }
 
@@ -110,11 +68,6 @@ Status TableCache::Get(const ReadOptions& options,
                        void (*saver)(void*, const Slice&, const Slice&)) {
     Cache::Handle* handle = NULL;
     Status s = FindTable(file_number, file_size, &handle);
-    if (s.ok()) {
-        Table* t = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
-        s = t->InternalGet(options, k, arg, saver);
-        cache_->Release(handle);
-    }
     return s;
 }
 

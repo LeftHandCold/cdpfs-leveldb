@@ -52,7 +52,15 @@ private:
     // be made to the descriptor are added to *edit.
     Status Recover(VersionEdit* edit, bool* save_manifest);
 
+    void CompactMemTable();
+    Status WriteLevel0Table(MemTable* mem);
+
     void MaybeScheduleCompaction();
+
+    static void BGWork(void* db);
+    void BackgroundCall();
+    void BackgroundCompaction();
+
 
     Status MakeRoomForWrite(bool force /* compact even if there is room? */);
 
@@ -74,6 +82,8 @@ private:
     WritableFile* logfile_;
     uint64_t logfile_number_;
     log::Writer* log_;
+
+    bool background_compaction_scheduled_;
 
     VersionSet* const versions_;
 

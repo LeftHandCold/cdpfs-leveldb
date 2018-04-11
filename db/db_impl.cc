@@ -4,6 +4,9 @@
 
 #include "db/db_impl.h"
 
+
+#include "db/builder.h"
+
 #include "db/filename.h"
 #include "db/memtable.h"
 #include "db/table_cache.h"
@@ -30,6 +33,54 @@ struct DBImpl::Writer {
 
 void DBImpl::MaybeScheduleCompaction() {
 
+    if (background_compaction_scheduled_) {
+        // Already scheduled
+    } else {
+        background_compaction_scheduled_ = true;
+        BGWork(this);
+    }
+}
+
+
+void DBImpl::BGWork(void* db) {
+    reinterpret_cast<DBImpl*>(db)->BackgroundCall();
+}
+
+void DBImpl::BackgroundCall() {
+
+    assert(background_compaction_scheduled_);
+
+    BackgroundCompaction();
+
+    background_compaction_scheduled_ = false;
+}
+
+void DBImpl::BackgroundCompaction() {
+    if (imm_ != NULL) {
+        CompactMemTable();
+        return;
+    }
+
+    printf("imm_ is NULL\n");
+}
+
+
+void DBImpl::CompactMemTable() {
+
+    Status s = WriteLevel0Table(imm_);
+}
+
+Status DBImpl::WriteLevel0Table(MemTable* mem) {
+
+    FileMetaData meta;
+    meta.number = versions_->NewFileNumber();
+    Iterator* iter = mem->NewIterator();
+    Log(options_.info_log, "Level-0 table #%llu: started",
+        (unsigned long long) meta.number);
+
+    Status s;
+
+    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
 }
 
 Status DBImpl::MakeRoomForWrite(bool force) {
@@ -139,6 +190,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
           owns_info_log_(options_.info_log != raw_options.info_log),
           owns_cache_(options_.block_cache != raw_options.block_cache),
           dbname_(dbname),
+          background_compaction_scheduled_(false),
           table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
           versions_(new VersionSet(dbname_, &options_, table_cache_,
                                         &internal_comparator_)) {

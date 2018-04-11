@@ -14,6 +14,16 @@
 
 namespace leveldb {
 
+struct FileMetaData {
+    int refs;
+    int allowed_seeks;          // Seeks allowed until compaction
+    uint64_t number;
+    uint64_t file_size;         // File size in bytes
+    InternalKey smallest;       // Smallest internal key served by table
+    InternalKey largest;        // Largest internal key served by table
+
+    FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) { }
+};
 
 namespace log { class Writer; }
 
@@ -33,9 +43,6 @@ public:
                const InternalKeyComparator *);
 
     ~VersionSet();
-
-    // Return the current version.
-    Version *current() const { return current_; }
 
     // Return the current manifest file number
     uint64_t ManifestFileNumber() const { return manifest_file_number_; }
@@ -101,8 +108,6 @@ private:
     friend class Version;
 
     bool ReuseManifest(const std::string &dscname, const std::string &dscbase);
-
-    void Finalize(Version *v);
 
     void SetupOtherInputs(Compaction *c);
 
